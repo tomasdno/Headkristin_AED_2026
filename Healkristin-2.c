@@ -15,6 +15,19 @@ int extensaoexists(char *filename,  char*extensao){
     return strcmp(filename + lenfilename - lenextensao, extensao) == 0; 
 }
 
+int linkcompare (const void *a, const void *b) {
+    const Ligacao *linkA = (const Ligacao *)a;
+    const Ligacao *linkB = (const Ligacao *)b;
+
+    if (linkA->dist2 < linkB->dist2) {
+        return -1;
+    } else if (linkA->dist2 > linkB->dist2) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 void freeGrafo(No **grafo, int C) {
     for (int i = 1; i <= C; i++) {
         No *atual = grafo[i];
@@ -167,116 +180,50 @@ void doTask4 (UnionFind *uf, int *X, int *Y, int C, int city, FILE *resultsFILE,
     fprintf(resultsFILE, "Task4 %d %d\n", city, bestroot);    
 }
 
-// Devolve 1 se a aresta x for "melhor" que y (ordem total: d2, depois a, depois b).
-// O desempate determinístico garante que o Boruvka nunca cria ciclos.
-static int melhorAresta(Edge x, Edge y) {
-    if (x.d2 != y.d2) return x.d2 < y.d2;
-    if (x.a != y.a) return x.a < y.a;
-    return x.b < y.b;
-}
-
-static int cmpEdge(const void *p, const void *q) {
-    const Edge *x = p;
-    const Edge *y = q;
-    if (x->a != y->a) return x->a - y->a;
-    return x->b - y->b;
-}
-
-// Calcula as arestas novas que unem todos os clusters (Boruvka).
-// Trabalha numa COPIA do union-find para nao estragar as Tasks 1-4.
-// Devolve array com *nEdges arestas (ordenado por a, b) ou NULL em erro.
-Edge *calcularMST(UnionFind *uf, int *X, int *Y, int C, int *nEdges) {
-    *nEdges = 0;
-
-    UnionFind uf2;
-    uf2.parent = malloc((C + 1) * sizeof(int));
-    uf2.size = malloc((C + 1) * sizeof(int));
-    int *root = malloc((C + 1) * sizeof(int));
-    Edge *best = malloc((C + 1) * sizeof(Edge));
-    char *has = malloc((C + 1) * sizeof(char));
-    int maxEdges = uf->count > 1 ? uf->count - 1 : 1;
-    Edge *mst = malloc(maxEdges * sizeof(Edge));
-
-    if (!uf2.parent || !uf2.size || !root || !best || !has || !mst) {
-        free(uf2.parent); free(uf2.size); free(root);
-        free(best); free(has); free(mst);
-        return NULL;
-    }
-
-    for (int i = 1; i <= C; i++) {
-        uf2.parent[i] = uf->parent[i];
-        uf2.size[i] = uf->size[i];
-    }
-    uf2.count = uf->count;
-
-    while (uf2.count > 1) {
-        for (int i = 1; i <= C; i++) {
-            root[i] = findroot(&uf2, i);
-            has[i] = 0;
-        }
-
-        // cada cluster procura a aresta mais barata para fora de si
-        for (int i = 1; i <= C; i++) {
-            for (int j = i + 1; j <= C; j++) {
-                if (root[i] == root[j]) continue;
-
-                long long dx = (long long)(X[i] - X[j]);
-                long long dy = (long long)(Y[i] - Y[j]);
-                Edge e = { i, j, dx * dx + dy * dy };
-
-                if (!has[root[i]] || melhorAresta(e, best[root[i]])) {
-                    best[root[i]] = e;
-                    has[root[i]] = 1;
-                }
-                if (!has[root[j]] || melhorAresta(e, best[root[j]])) {
-                    best[root[j]] = e;
-                    has[root[j]] = 1;
-                }
-            }
-        }
-
-        // funde os clusters; revalida porque duas escolhas da mesma ronda
-        // podem ligar os mesmos dois clusters
-        for (int r = 1; r <= C; r++) {
-            if (!has[r]) continue;
-            if (findroot(&uf2, best[r].a) != findroot(&uf2, best[r].b)) {
-                unionCities(&uf2, best[r].a, best[r].b);
-                mst[(*nEdges)++] = best[r];
-            }
-        }
-    }
-
-    qsort(mst, *nEdges, sizeof(Edge), cmpEdge);
-
-    free(uf2.parent); free(uf2.size); free(root);
-    free(best); free(has);
-    return mst;
-}
-
 void doTask5(UnionFind *uf, int *X, int *Y, int C, FILE *resultsFILE, int *firstOutput) {
-    if (!*firstOutput) {
+    if(!*firstOutput){
         fprintf(resultsFILE, "\n");
     }
-    *firstOutput = 0;
+    int ligacoespossiveis = C * (C - 1) / 2;
 
-    int nEdges = 0;
-    Edge *mst = calcularMST(uf, X, Y, C, &nEdges);
-    if (mst == NULL) {
-        fprintf(resultsFILE, "Task5 -2\n");
+    Ligacao *candidatas = malloc(ligacoespossiveis * sizeof(Ligacao));
+    Ligacao *escolhidas = malloc( C * sizeof(Ligacao));
+    UnionFind tempUF;
+
+    tempUF.parent = malloc((C + 1) * sizeof(int));
+    tempUF.size = malloc((C + 1) * sizeof(int));
+
+    if (candidatas == NULL || escolhidas == NULL || tempUF.parent == NULL || tempUF.size == NULL) {
+        free(candidatas);
+        free(escolhidas);
+        free(tempUF.parent);
+        free(tempUF.size);
         return;
     }
 
-    double total = 0.0;
-    for (int i = 0; i < nEdges; i++) {
-        total += sqrt((double)mst[i].d2);
+    for (int i = 1; i <= C; i++) {
+        tempUF.parent[i] = uf->parent[i];
+        tempUF.size[i] = uf->size[i];
     }
 
-    fprintf(resultsFILE, "Task5 %.2f\n", total);
-    for (int i = 0; i < nEdges; i++) {
-        fprintf(resultsFILE, "%d %d %.2f\n", mst[i].a, mst[i].b, sqrt((double)mst[i].d2));
-    }
+    int numcandidatas = 0;
+    for(int i = 1; i <= C; i++) {
+        int rootA = findroot(&tempUF, i);
+        for(int j = i + 1; j <= C; j++) {
+            int rootB = findroot(&tempUF, j);
+            if(rootA != rootB) {
+                long long distanceX = (long long)(X[i] - X[j]);
+                long long distanceY = (long long)(Y[i] - Y[j]);
+                long long dist2 = distanceX * distanceX + distanceY * distanceY;
 
-    free(mst);
+                candidatas[numcandidatas].city1 = i;
+                candidatas[numcandidatas].city2 = j;
+                candidatas[numcandidatas].dist2 = dist2;
+                numcandidatas++;
+            }
+        }
+    }
+    qsort(candidatas, numcandidatas, sizeof(Ligacao), linkcompare);
 }
 
 
@@ -567,13 +514,21 @@ int firstOutput = 1;
            //-----Fim Task2: 3.4-----//
         
         }
-        else if (strcmp(task, "Task5")==0) {
-            if (n != 1) {
+        else if(strcmp(task,"Task5")==0){
+            if(n!=1){
                 continue;
             }
-            //-----Task5 5.1.1-----//
-            doTask5(&uf, X, Y, C, resultsFILE, &firstOutput);
-            //-----Fim Task5-----//
+            //-----Task5 3.5-----//
+            doTask5(&uf, X, Y, C, resultsFILE, &firstOutput);  //função do Task5
+           //-----Fim Task5: 3.5-----// 
+        }
+        else if(strcmp(task,"Task6")==0){
+            if(n!=2){
+                continue;
+            }
+            //-----Task6 3.6-----//
+            doTask6(&uf, X, Y, C, city, resultsFILE, &firstOutput);  //função do Task6
+           //-----Fim Task6: 3.6-----// 
         }
         else {
         }
